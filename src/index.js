@@ -1,3 +1,4 @@
+const { user_id } = req.body;
 import express from "express";
 import dotenv from "dotenv";
 import { verifyApiKey } from "./auth.js";
@@ -58,3 +59,4 @@ app.post("/start-automation", verifyApiKey, async (req, res) => {
 app.listen(process.env.PORT, () =>
   console.log("Automation backend running")
 );
+
