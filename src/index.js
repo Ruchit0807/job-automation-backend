@@ -9,64 +9,102 @@ import { applyLinkedInEasyApply } from "./linkedin.js";
 import { sendWebhook } from "./webhook.js";
 
 dotenv.config();
+
 const app = express();
 app.use(express.json());
 
+/**
+ * Health check (optional but useful)
+ */
+app.get("/", (req, res) => {
+  res.json({ status: "Automation backend running" });
+});
+
+/**
+ * MAIN ENTRYPOINT CALLED BY LOVABLE
+ */
 app.post("/start-automation", verifyApiKey, async (req, res) => {
+  console.log("✅ /start-automation HIT");
+  console.log("Headers:", req.headers);
+  console.log("Body:", req.body);
+
   const jobId = crypto.randomUUID();
   const { user_id, job_preferences } = req.body;
 
-  // Respond immediately
+  // Immediately respond to Lovable
   res.json({ job_id: jobId, status: "queued" });
 
-  try {
-    await sendWebhook({
-      user_id,
-      job_id: jobId,
-      event: "application_started"
-    });
+  // Run automation asynchronously
+  (async () => {
+    let browser;
 
-    const session = await createBrowserbaseSession();
+    try {
+      console.log("🚀 Automation started for job:", jobId);
 
-    const browser = await chromium.connectOverCDP(
-      session.connectUrl
-    );
+      // Notify start
+      await sendWebhook({
+        user_id,
+        job_id: jobId,
+        event: "application_started"
+      });
 
-    const page = await browser.newPage();
+      console.log("🌐 Creating BrowserBase session...");
+      const session = await createBrowserbaseSession();
+      console.log("✅ BrowserBase session created:", session.id);
 
-    await applyLinkedInEasyApply(page, job_preferences);
+      console.log("🔌 Connecting Playwright to BrowserBase...");
+      browser = await chromium.connectOverCDP(session.connectUrl);
 
-    const screenshot = await page.screenshot({ encoding: "base64" });
+      const page = await browser.newPage();
 
-    await sendWebhook({
-      user_id,
-      job_id: jobId,
-      event: "application_submitted",
-      data: {
-        job_title: job_preferences.job_titles[0],
-        company_name: "LinkedIn",
-        screenshot_base64: screenshot
+      console.log("🧭 Running LinkedIn Easy Apply logic...");
+      await applyLinkedInEasyApply(page, job_preferences);
+
+      console.log("📸 Taking screenshot...");
+      const screenshot = await page.screenshot({ encoding: "base64" });
+
+      console.log("📡 Sending application_submitted webhook...");
+      await sendWebhook({
+        user_id,
+        job_id: jobId,
+        event: "application_submitted",
+        data: {
+          job_title: job_preferences?.job_titles?.[0] || "Unknown",
+          company_name: "LinkedIn",
+          screenshot_base64: screenshot
+        }
+      });
+
+      console.log("🏁 Automation completed successfully");
+
+      await sendWebhook({
+        user_id,
+        job_id: jobId,
+        event: "job_complete"
+      });
+
+    } catch (err) {
+      console.error("❌ Automation failed:", err.message);
+
+      await sendWebhook({
+        user_id,
+        job_id: jobId,
+        event: "application_failed",
+        data: {
+          error_message: err.message
+        }
+      });
+
+    } finally {
+      if (browser) {
+        console.log("🧹 Closing browser");
+        await browser.close();
       }
-    });
-
-    await browser.close();
-
-    await sendWebhook({
-      user_id,
-      job_id: jobId,
-      event: "job_complete"
-    });
-
-  } catch (err) {
-    await sendWebhook({
-      user_id,
-      job_id: jobId,
-      event: "application_failed",
-      data: { error_message: err.message }
-    });
-  }
+    }
+  })();
 });
 
-app.listen(process.env.PORT, () =>
-  console.log("Automation backend running")
-);
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+  console.log(`Automation backend running on port ${PORT}`);
+});
