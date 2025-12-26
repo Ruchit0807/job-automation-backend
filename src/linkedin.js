@@ -1,27 +1,22 @@
-export async function applyLinkedInEasyApply(page, user) {
-  await page.goto("https://www.linkedin.com/jobs", { timeout: 60000 });
+export async function applyLinkedInEasyApply(page, jobPreferences) {
+  const searchQuery = encodeURIComponent(jobPreferences.job_titles[0]);
 
-  await page.fill("input[aria-label='Search by title']", user.job_titles[0]);
-  await page.keyboard.press("Enter");
-  await page.waitForTimeout(4000);
+  const url = `https://www.linkedin.com/jobs/search/?keywords=${searchQuery}`;
 
-  const jobs = await page.$$("button.jobs-apply-button");
+  await page.goto(url, { waitUntil: "domcontentloaded" });
 
-  for (let job of jobs.slice(0, user.limit)) {
-    await job.click();
-    await page.waitForTimeout(2000);
+  await page.waitForTimeout(5000);
 
-    const easyApply = await page.$("button[aria-label*='Easy Apply']");
-    if (!easyApply) continue;
+  const easyApplyButtons = await page.$$('button:has-text("Easy Apply")');
 
-    await easyApply.click();
-    await page.waitForTimeout(2000);
-
-    // Submit (basic flow)
-    const submit = await page.$("button[aria-label='Submit application']");
-    if (submit) {
-      await submit.click();
-      await page.waitForTimeout(2000);
-    }
+  if (easyApplyButtons.length === 0) {
+    throw new Error("No Easy Apply jobs found");
   }
+
+  await easyApplyButtons[0].click();
+  await page.waitForTimeout(3000);
+
+  // MVP: just stop here after opening form
+  return true;
 }
+
